@@ -85,6 +85,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-split"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -259,6 +267,7 @@ version = "0.3.8"
 dependencies = [
  "anyhow",
  "app_dirs2",
+ "async-split",
  "async-trait",
  "bitflags 2.6.0",
  "crossbeam-channel",

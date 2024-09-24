@@ -16,14 +16,17 @@ readme = "README.md"
 
 [features]
 default = []
+# default = ["async"]
 # Enables tests that require 2 running Discord applications (stable, canary, or PTB)
 # with a logged in user, see https://discord.com/developers/docs/game-sdk/sdk-starter-guide#testing-locally-with-two-clients
 local-testing = []
+async = ["async-split/async"]
 
 [dependencies]
 # App registration can fail for a large number of reasons including OS specific
 # ones, so the error is just a generic anyhow error for simplicity
 anyhow = "1.0"
+async-split = { path = "../async-split" }
 async-trait = "0.1"
 # Lobby messages can be an arbitrary binary blob which needs to be encoded
 # in base64

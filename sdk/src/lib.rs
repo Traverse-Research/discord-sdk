@@ -15,6 +15,19 @@ mod types;
 pub mod user;
 pub mod voice;
 
+use async_split::sdk_async;
+
+#[cfg(feature = "async")]
+pub(crate) mod async_primitives;
+#[cfg(feature = "async")]
+use async_primitives as primitives;
+
+#[cfg(not(feature = "async"))]
+#[macro_use]
+mod non_async_primitives;
+#[cfg(not(feature = "async"))]
+use non_async_primitives as primitives;
+
 pub use error::{DiscordApiErr, DiscordErr, Error};
 pub use handler::{handlers, wheel, DiscordHandler, DiscordMsg};
 pub use proto::event::Event;
@@ -70,9 +83,9 @@ pub struct Discord {
     /// Queue for messages to be sent to Discord
     send_queue: cc::Sender<Option<Vec<u8>>>,
     /// The handle to the task actually driving the I/O with Discord
-    io_task: tokio::task::JoinHandle<()>,
+    io_task: primitives::JoinHandle<()>,
     /// The handle to the task dispatching messages to the [`DiscordHandler`]
-    handler_task: tokio::task::JoinHandle<()>,
+    handler_task: primitives::JoinHandle<()>,
     state: State,
 }
 
@@ -116,10 +129,21 @@ impl Discord {
 
     /// Disconnects from Discord, shutting down the tasks that have been created
     /// to handle sending and receiving messages from it.
-    pub async fn disconnect(self) {
+    #[sdk_async]
+    pub fn disconnect(self) {
         let _ = self.send_queue.send(None);
-        let _ = self.io_task.await;
-        let _ = self.handler_task.await;
+
+        #[cfg(feature = "async")]
+        {
+            let _ = self.io_task.await;
+            let _ = self.handler_task.await;
+        }
+
+        #[cfg(not(feature = "async"))]
+        {
+            let _ = self.io_task.join();
+            let _ = self.handler_task.join();
+        }
     }
 
     /// Serializes an RPC ands adds a notification oneshot so that we can be notified

@@ -4,10 +4,12 @@ members = [
     # The actual library crate
     "sdk",
 
+    "async-split",
+
     # Helper program, not published
     "sniff",
 
     # Example related libraries, not published
     "examples-shared",
-    "examples/*",
+    "examples/*", "async-split",
 ]

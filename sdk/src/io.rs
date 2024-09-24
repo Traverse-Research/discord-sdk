@@ -3,6 +3,8 @@ use std::io::Seek;
 use crate::{types, Error};
 use crossbeam_channel as cc;
 
+// use super::primitives;
+
 const RPC_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -109,7 +111,7 @@ pub(crate) struct IoTask {
     /// The queue of RPCs sent from Discord
     pub(crate) rrx: tokio::sync::mpsc::Receiver<IoMsg>,
     /// The handle to the task
-    pub(crate) handle: tokio::task::JoinHandle<()>,
+    pub(crate) handle: super::primitives::JoinHandle<()>,
 }
 
 pub(crate) enum IoMsg {

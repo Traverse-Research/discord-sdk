@@ -7,6 +7,7 @@ use crate::{
     types::ErrorPayloadStack,
     Error,
 };
+use async_split::sdk_async;
 use crossbeam_channel as cc;
 
 /// An event or error sent from Discord
@@ -19,21 +20,19 @@ pub enum DiscordMsg {
 #[async_trait::async_trait]
 pub trait DiscordHandler: Send + Sync {
     /// Method called when an [`Event`] or [`Error`] is received from Discord
-    async fn on_message(&self, msg: DiscordMsg);
+    #[sdk_async]
+    fn on_message(&self, msg: DiscordMsg);
 }
 
-/// Creates a task which receives raw frame buffers and deserializes them, and either
-/// notifying the awaiting oneshot for a command response, or in the case of events,
-/// broadcasting the event to
-pub(crate) fn handler_task(
+#[sdk_async]
+fn handler_loop(
     handler: Box<dyn DiscordHandler>,
     subscriptions: crate::Subscriptions,
     stx: cc::Sender<Option<Vec<u8>>>,
-    mut rrx: tokio::sync::mpsc::Receiver<io::IoMsg>,
+    mut rrx: super::primitives::ChannelReceiver<io::IoMsg>,
     state: crate::State,
-) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn(async move {
-        tracing::debug!("starting handler loop");
+) {
+    tracing::debug!("starting handler loop");
 
         let pop_nonce = |nonce: usize| -> Option<crate::NotifyItem> {
             let mut lock = state.notify_queue.lock();
@@ -45,10 +44,18 @@ pub(crate) fn handler_task(
 
         // Shunt the user handler to a separate task so that we don't care about it blocking
         // when handling events
-        let (user_tx, mut user_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (user_tx, mut user_rx) = super::primitives::unbounded_channel();
+        #[cfg(feature = "async")]
         let user_task = tokio::task::spawn(async move {
             while let Some(msg) = user_rx.recv().await {
                 handler.on_message(msg).await;
+            }
+        });
+
+        #[cfg(not(feature = "async"))]
+        let user_task = std::thread::spawn(|| {
+            while let Ok(msg) = user_rx.recv() {
+                handler.on_message(msg);
             }
         });
 
@@ -151,8 +158,32 @@ pub(crate) fn handler_task(
         }
 
         drop(user_tx);
+        #[cfg(feature = "async")]
         let _ = user_task.await;
-    })
+
+        #[cfg(not(feature = "async"))]
+        let _ = user_task.join();
+}
+
+/// Creates a task which receives raw frame buffers and deserializes them, and either
+/// notifying the awaiting oneshot for a command response, or in the case of events,
+/// broadcasting the event to
+pub(crate) fn handler_task(
+    handler: Box<dyn DiscordHandler>,
+    subscriptions: crate::Subscriptions,
+    stx: cc::Sender<Option<Vec<u8>>>,
+    mut rrx: super::primitives::ChannelReceiver<io::IoMsg>,
+    state: crate::State,
+) -> super::primitives::JoinHandle<()> {
+    #[cfg(feature = "async")]
+    {
+        tokio::task::spawn(handler_loop(handler, subscriptions, stx, rrx, state))
+    }
+
+    #[cfg(not(feature = "async"))] 
+    {
+        std::thread::spawn(|| handler_loop(handler, subscriptions, stx, rrx, state))
+    }
 }
 
 #[derive(Debug)]
