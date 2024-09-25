@@ -20,7 +20,7 @@ pub enum DiscordMsg {
 #[async_trait::async_trait]
 pub trait DiscordHandler: Send + Sync {
     /// Method called when an [`Event`] or [`Error`] is received from Discord
-    #[sdk_async]
+    // #[sdk_async]
     fn on_message(&self, msg: DiscordMsg);
 }
 
