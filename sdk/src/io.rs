@@ -1,6 +1,7 @@
 use std::io::Seek;
 
 use crate::{types, Error};
+use async_split_macro::sdk_async;
 use crossbeam_channel as cc;
 
 // use super::primitives;
@@ -109,9 +110,9 @@ pub(crate) struct IoTask {
     /// The queue of messages to send to Discord
     pub(crate) stx: cc::Sender<Option<Vec<u8>>>,
     /// The queue of RPCs sent from Discord
-    pub(crate) rrx: tokio::sync::mpsc::Receiver<IoMsg>,
+    pub(crate) rrx: async_split::ChannelReceiver<IoMsg>,
     /// The handle to the task
-    pub(crate) handle: super::primitives::JoinHandle<()>,
+    pub(crate) handle: async_split::JoinHandle<()>,
 }
 
 pub(crate) enum IoMsg {
@@ -124,7 +125,7 @@ type Pipe = tokio::net::UnixStream;
 #[cfg(windows)]
 type Pipe = tokio::net::windows::named_pipe::NamedPipeClient;
 
-pub(crate) fn start_io_task(app_id: i64) -> IoTask {
+pub(crate) fn start_io_task(app_id: i64, zmq_context: zmq::Context) -> IoTask {
     #[cfg(unix)]
     async fn connect() -> Result<Pipe, Error> {
         let tmp_path = std::env::var("XDG_RUNTIME_DIR")
@@ -173,7 +174,7 @@ pub(crate) fn start_io_task(app_id: i64) -> IoTask {
     }
 
     #[cfg(windows)]
-    async fn connect() -> Result<Pipe, Error> {
+    async fn connect(zmq_context: zmq::Context) -> Result<Pipe, Error> {
         use tokio::net::windows::named_pipe::ClientOptions;
 
         #[cfg(feature = "local-testing")]
@@ -198,7 +199,9 @@ pub(crate) fn start_io_task(app_id: i64) -> IoTask {
             socket_path.pop();
             use std::fmt::Write;
             write!(&mut socket_path, "{}", seq).unwrap();
-
+            
+            zmq_context.socket(zmq::SocketType::PAIR)
+            
             match ClientOptions::new().open(&socket_path) {
                 Ok(stream) => {
                     tracing::debug!("connected to {}!", socket_path);
@@ -216,18 +219,19 @@ pub(crate) fn start_io_task(app_id: i64) -> IoTask {
     // Send queue
     let (stx, srx) = cc::bounded::<Option<Vec<u8>>>(100);
     // Receive queue
-    let (rtx, rrx) = tokio::sync::mpsc::channel(100);
+    let (rtx, rrx) = async_split::channel::bounded(100);
 
     // The io thread also sends messages
     let io_stx = stx.clone();
 
     let handle = tokio::task::spawn(async move {
+        #[sdk_async]
         async fn io_loop(
             stream: impl SocketStream,
             app_id: i64,
             stx: &cc::Sender<Option<Vec<u8>>>,
             srx: &cc::Receiver<Option<Vec<u8>>>,
-            rtx: &tokio::sync::mpsc::Sender<IoMsg>,
+            rtx: &async_split::ChannelSender<IoMsg>,
         ) -> Result<(), Error> {
             // We always send the handshake immediately on establishing a connection,
             // Discord should then respond with a `Ready` RPC
@@ -265,6 +269,8 @@ pub(crate) fn start_io_task(app_id: i64) -> IoTask {
 
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
 
+            
+
             loop {
                 // We use crossbeam channels for sending messages to this I/O
                 // task as they provide a little more functionality compared to
@@ -277,11 +283,10 @@ pub(crate) fn start_io_task(app_id: i64) -> IoTask {
                 // just the write that is limited to a maximum of 1 per tick
                 // which is fine since the tick is quite small relative to the
                 // amount of messages we actually send to Discord
-                interval.tick().await;
+                async_split::async_await!(interval.tick());
 
-                let ready = stream
-                    .ready(tokio::io::Interest::READABLE | tokio::io::Interest::WRITABLE)
-                    .await
+                let ready = async_split::async_await!(stream
+                    .ready(tokio::io::Interest::READABLE | tokio::io::Interest::WRITABLE))
                     .map_err(|e| Error::io("polling socket readiness", e))?;
 
                 if ready.is_readable() {

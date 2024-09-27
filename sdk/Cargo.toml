@@ -20,13 +20,14 @@ default = []
 # Enables tests that require 2 running Discord applications (stable, canary, or PTB)
 # with a logged in user, see https://discord.com/developers/docs/game-sdk/sdk-starter-guide#testing-locally-with-two-clients
 local-testing = []
-async = ["async-split/async"]
+async = ["async-split/async", "async-split-macro/async"]
 
 [dependencies]
 # App registration can fail for a large number of reasons including OS specific
 # ones, so the error is just a generic anyhow error for simplicity
 anyhow = "1.0"
 async-split = { path = "../async-split" }
+async-split-macro = { path = "../async-split-macro" }
 async-trait = "0.1"
 # Lobby messages can be an arbitrary binary blob which needs to be encoded
 # in base64
@@ -57,6 +58,7 @@ tokio = { version = "1.8.2", features = [
 tracing = "0.1"
 # Applications can be registered with a custom protocol on all OSes
 url = "2.2"
+zmq = "0.10.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # We need to lookup directories for placing the desktop entries when doing

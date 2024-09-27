@@ -6,7 +6,8 @@ pub struct Printer;
 
 #[async_trait]
 impl DiscordHandler for Printer {
-    async fn on_message(&self, msg: DiscordMsg) {
+    #[async_split_macro::sdk_async]
+    fn on_message(&self, msg: DiscordMsg) {
         match msg {
             DiscordMsg::Event(eve) => tracing::debug!(event = ?eve),
             DiscordMsg::Error(err) => tracing::warn!(error = ?err),
@@ -35,7 +36,8 @@ impl Forwarder {
 
 #[async_trait]
 impl DiscordHandler for Forwarder {
-    async fn on_message(&self, msg: DiscordMsg) {
+    #[async_split_macro::sdk_async]
+    fn on_message(&self, msg: DiscordMsg) {
         if let Err(msg) = self.tx.send(msg) {
             tracing::warn!(msg = ?msg.0, "message dropped");
         }

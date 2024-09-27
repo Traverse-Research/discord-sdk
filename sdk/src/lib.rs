@@ -15,18 +15,7 @@ mod types;
 pub mod user;
 pub mod voice;
 
-use async_split::sdk_async;
-
-#[cfg(feature = "async")]
-pub(crate) mod async_primitives;
-#[cfg(feature = "async")]
-use async_primitives as primitives;
-
-#[cfg(not(feature = "async"))]
-#[macro_use]
-mod non_async_primitives;
-#[cfg(not(feature = "async"))]
-use non_async_primitives as primitives;
+use async_split_macro::sdk_async;
 
 pub use error::{DiscordApiErr, DiscordErr, Error};
 pub use handler::{handlers, wheel, DiscordHandler, DiscordMsg};
@@ -83,9 +72,9 @@ pub struct Discord {
     /// Queue for messages to be sent to Discord
     send_queue: cc::Sender<Option<Vec<u8>>>,
     /// The handle to the task actually driving the I/O with Discord
-    io_task: primitives::JoinHandle<()>,
+    io_task: async_split::JoinHandle<()>,
     /// The handle to the task dispatching messages to the [`DiscordHandler`]
-    handler_task: primitives::JoinHandle<()>,
+    handler_task: async_split::JoinHandle<()>,
     state: State,
 }
 
@@ -97,6 +86,16 @@ impl Discord {
         subscriptions: Subscriptions,
         handler: Box<dyn DiscordHandler>,
     ) -> Result<Self, Error> {
+        let zmq_context = zmq::Context::new();
+        Self::with_zmq_context(app, subscriptions, handler, zmq_context)
+    }
+
+    pub fn with_zmq_context(
+        app: impl Into<DiscordApp>,
+        subscriptions: Subscriptions,
+        handler: Box<dyn DiscordHandler>,
+        zmq_context: zmq::Context,
+    ) -> Result<Self, Error> {
         let app_id = match app.into() {
             DiscordApp::PlainId(id) => id,
             DiscordApp::Register(inner) => {
@@ -106,7 +105,7 @@ impl Discord {
             }
         };
 
-        let io_task = io::start_io_task(app_id);
+        let io_task = io::start_io_task(app_id, zmq_context);
 
         let state = State::default();
 

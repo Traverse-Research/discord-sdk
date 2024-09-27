@@ -5,6 +5,7 @@ members = [
     "sdk",
 
     "async-split",
+    "async-split-macro",
 
     # Helper program, not published
     "sniff",

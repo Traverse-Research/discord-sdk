@@ -2,12 +2,9 @@ pub mod handlers;
 pub mod wheel;
 
 use crate::{
-    io,
-    proto::{self, CommandKind, Event, EventKind, Rpc},
-    types::ErrorPayloadStack,
-    Error,
+    io, proto::{self, CommandKind, Event, EventKind, Rpc}, types::ErrorPayloadStack, Error
 };
-use async_split::sdk_async;
+use async_split_macro::sdk_async;
 use crossbeam_channel as cc;
 
 /// An event or error sent from Discord
@@ -20,7 +17,7 @@ pub enum DiscordMsg {
 #[async_trait::async_trait]
 pub trait DiscordHandler: Send + Sync {
     /// Method called when an [`Event`] or [`Error`] is received from Discord
-    // #[sdk_async]
+    #[sdk_async]
     fn on_message(&self, msg: DiscordMsg);
 }
 
@@ -29,7 +26,7 @@ fn handler_loop(
     handler: Box<dyn DiscordHandler>,
     subscriptions: crate::Subscriptions,
     stx: cc::Sender<Option<Vec<u8>>>,
-    mut rrx: super::primitives::ChannelReceiver<io::IoMsg>,
+    rrx: async_split::ChannelReceiver<io::IoMsg>,
     state: crate::State,
 ) {
     tracing::debug!("starting handler loop");
@@ -44,7 +41,7 @@ fn handler_loop(
 
         // Shunt the user handler to a separate task so that we don't care about it blocking
         // when handling events
-        let (user_tx, mut user_rx) = super::primitives::unbounded_channel();
+        let (user_tx, user_rx) = async_split::channel::unbounded();
         #[cfg(feature = "async")]
         let user_task = tokio::task::spawn(async move {
             while let Some(msg) = user_rx.recv().await {
@@ -53,7 +50,7 @@ fn handler_loop(
         });
 
         #[cfg(not(feature = "async"))]
-        let user_task = std::thread::spawn(|| {
+        let user_task = std::thread::spawn(move || {
             while let Ok(msg) = user_rx.recv() {
                 handler.on_message(msg);
             }
@@ -67,7 +64,7 @@ fn handler_loop(
             };
         }
 
-        while let Some(io_msg) = rrx.recv().await {
+        while let Ok(io_msg) = rrx.recv() {
             let msg = match io_msg {
                 io::IoMsg::Disconnected(err) => {
                     user_send!(DiscordMsg::Event(Event::Disconnected { reason: err }));
@@ -172,9 +169,9 @@ pub(crate) fn handler_task(
     handler: Box<dyn DiscordHandler>,
     subscriptions: crate::Subscriptions,
     stx: cc::Sender<Option<Vec<u8>>>,
-    mut rrx: super::primitives::ChannelReceiver<io::IoMsg>,
+    rrx: async_split::ChannelReceiver<io::IoMsg>,
     state: crate::State,
-) -> super::primitives::JoinHandle<()> {
+) -> async_split::JoinHandle<()> {
     #[cfg(feature = "async")]
     {
         tokio::task::spawn(handler_loop(handler, subscriptions, stx, rrx, state))
@@ -182,7 +179,7 @@ pub(crate) fn handler_task(
 
     #[cfg(not(feature = "async"))] 
     {
-        std::thread::spawn(|| handler_loop(handler, subscriptions, stx, rrx, state))
+        std::thread::spawn(move || handler_loop(handler, subscriptions, stx, rrx, state))
     }
 }
 

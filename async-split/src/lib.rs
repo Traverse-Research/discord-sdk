@@ -1,82 +1,59 @@
-use proc_macro::TokenStream;
+#[cfg(feature = "async")]
+pub mod async_types;
+#[cfg(feature = "async")]
+use async_types as types;
+#[cfg(feature = "async")]
+pub mod async_impls;
 
-#[derive(Debug)]
-enum Parsed {
-    ItemFn(syn::ItemFn),
-    TraitFn(syn::TraitItemFn),
-    // TODO: Add closure and maybe statement blocks
-}
-
-fn parse_type(input: syn::parse::ParseStream<'_>) -> Result<Parsed, syn::Error>{
-    
-//     // Most cases where we need to separate between async and non-async are standard functions.
-//     // First check if we are trying to parse one of those.
-//     // We also need to do this first because normal functions can be incorrectly parsed as trait functions
-//     if let Ok(item_fn) = input.fork().parse::<syn::ItemFn>() {
-//         println!("Just a function");
-//         Ok(Parsed::ItemFn(item_fn))
-//     } else {
-//         println!("You should not be here");
-//         // Alternatively, we might be working with a trait function. Attempt to parse as such.
-//         // let a = input.parse::<syn::TraitItemFn>().map(Parsed::TraitFn);
-//         // a
-//         panic!("Nope");
-//     }
-    match dbg!(input.fork()).parse::<syn::ItemFn>() {
-        Ok(item_fn) => Ok(Parsed::ItemFn(item_fn)),
-        Err(_) => {
-            input.parse::<syn::TraitItemFn>().map(Parsed::TraitFn)
-        },
-    }
-}
-
-// #[proc_macro_attribute]
-// pub fn sdk_async(_attr: TokenStream, item: TokenStream) -> TokenStream {
-//     use quote::ToTokens;
-//     let mut parsed = syn::parse_macro_input!(item with parse_type);
-
-//     let signature = match &mut parsed {
-//         Parsed::ItemFn(item_fn) => &mut item_fn.sig,
-//         Parsed::TraitFn(trait_item_fn) => &mut trait_item_fn.sig,
-//     };
-
-//     #[cfg(not(feature = "async"))]
-//     {
-//         signature.asyncness = None;
-//     }
-    
-//     #[cfg(feature = "async")]
-//     {
-//         signature.asyncness = Some(syn::Token![async](Span::call_site()));
-//     }
-    
-//     dbg!(match parsed {
-//         Parsed::ItemFn(item_fn) => item_fn.to_token_stream().into(),
-//         Parsed::TraitFn(trait_item_fn) => trait_item_fn.to_token_stream().into(),
-//     })
-// }
-#[proc_macro_attribute]
-pub fn sdk_async(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    use quote::ToTokens;
-    let mut parsed = syn::parse_macro_input!(item with parse_type);
-
-    let signature = match &mut parsed {
-        Parsed::ItemFn(item_fn) => &mut item_fn.sig,
-        Parsed::TraitFn(trait_item_fn) => &mut trait_item_fn.sig,
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! async_await {
+    ($fut:expr) => {
+        (($fut).await)
     };
+}
 
-    #[cfg(not(feature = "async"))]
-    {
-        signature.asyncness = None;
-    }
-    
-    #[cfg(feature = "async")]
-    {
-        signature.asyncness = Some(syn::Token![async](Span::call_site()));
+#[cfg(not(feature = "async"))]
+pub mod non_async_types;
+#[cfg(not(feature = "async"))]
+use non_async_types as types;
+#[cfg(not(feature = "async"))]
+pub mod non_async_impls;
+
+#[cfg(not(feature = "async"))]
+#[macro_export]
+macro_rules! async_await {
+    ($fut:expr) => {
+        $fut
+    };
+}
+
+pub use types::*;
+
+pub struct ChannelReceiver<T> {
+    receiver: Receiver<T>,
+}
+
+pub struct ChannelSender<T> {
+    sender: Sender<T>,
+}
+pub mod channel {
+    use crate::{types, ChannelReceiver, ChannelSender};
+
+    fn new<T>(buffer: Option<usize>) -> (ChannelSender<T>, ChannelReceiver<T>) {
+        let (sender, receiver) = if let Some(buffer) = buffer {
+            types::channel(buffer)
+        } else {
+            types::unbounded_channel()
+        };
+        (ChannelSender { sender }, ChannelReceiver { receiver })
     }
 
-    match parsed {
-        Parsed::ItemFn(item_fn) => item_fn.to_token_stream().into(),
-        Parsed::TraitFn(trait_item_fn) => trait_item_fn.to_token_stream().into(),
+    pub fn unbounded<T>() -> (ChannelSender<T>, ChannelReceiver<T>) {
+        new(None)
+    }
+
+    pub fn bounded<T>(buffer: usize) -> (ChannelSender<T>, ChannelReceiver<T>) {
+        new(Some(buffer))
     }
 }

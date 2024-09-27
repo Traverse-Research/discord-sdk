@@ -96,7 +96,20 @@ pub struct OverlaySpoke(pub watch::Receiver<OverlayState>);
 
 #[async_trait::async_trait]
 pub trait OnError: Send + Sync {
-    async fn on_error(&self, _error: crate::Error) {}
+    fn blocking_on_error(&self, error: crate::Error) {
+        #[cfg(feature = "async")]
+        {
+            self.on_error(error).await;
+        }
+
+        #[cfg(not(feature = "async"))]
+        {
+            self.on_error(error);
+        }
+    }
+
+    #[async_split_macro::sdk_async]
+    fn on_error(&self, _error: crate::Error) {}
 }
 
 #[async_trait::async_trait]
@@ -104,7 +117,13 @@ impl<F> OnError for F
 where
     F: Fn(crate::Error) + Send + Sync,
 {
+    #[cfg(feature = "async")]
     async fn on_error(&self, error: crate::Error) {
+        self(error);
+    }
+
+    #[cfg(not(feature = "async"))]
+    fn on_error(&self, error: crate::Error) {
         self(error);
     }
 }
@@ -141,9 +160,10 @@ pub struct WheelHandler {
 
 #[async_trait::async_trait]
 impl super::DiscordHandler for WheelHandler {
-    async fn on_message(&self, msg: DiscordMsg) {
+    #[async_split_macro::sdk_async]
+    fn on_message(&self, msg: DiscordMsg) {
         match msg {
-            DiscordMsg::Error(err) => self.error.on_error(err).await,
+            DiscordMsg::Error(err) => self.error.blocking_on_error(err),
             DiscordMsg::Event(eve) => match ClassifiedEvent::from(eve) {
                 ClassifiedEvent::Lobby(lobby) => {
                     if let Err(e) = self.lobby.send(lobby) {
